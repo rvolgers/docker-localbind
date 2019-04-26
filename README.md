@@ -16,6 +16,20 @@ At some point I would like to make a Docker image available that only contains t
 
 ## Usage
 
+### Configuring your container
+
+You must start your container with the provided seccomp profile (or no seccomp profile at all, but this is not recommended).
+
+For `docker run` or `docker start` you can use:
+
+```
+--security-opt seccomp="/path/to/the/file/docker-localbind-seccomp-profile.json"
+```
+
+For `docker-compose` you can specify it [in your compose file](https://docs.docker.com/compose/compose-file/#security_opt).
+
+### Using `localbind` in your container
+
 The following will run `npm start`. The `npm` process and all its children will see `/tmp/node_modules` mounted over `/src/node_modules`. This bind mount will not be visible in other processes.
 
 `localbind -v /tmp/node_modules:/src/node_modules npm start`
