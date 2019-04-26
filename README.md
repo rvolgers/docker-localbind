@@ -16,6 +16,31 @@ At some point I would like to make a Docker image available that only contains t
 
 ## Usage
 
+### Configuring your system
+
+The system that Docker runs on must have unprivileged user namespaces enabled. Systems where this is known to already be the case include Ubuntu and Docker for Mac. Systems where this is known to be restricted by default include Debian.
+
+A system that has the Debian-style restriction in place looks like this:
+
+```
+$ /sbin/sysctl kernel.unprivileged_userns_clone
+kernel.unprivileged_userns_clone = 0
+```
+
+If the value is 0 this will prevent localbind from working. If it does not exist or has the value 1 it is ok.
+
+Some systems also might have the following setting that restricts unprivileged user namespaces:
+
+```
+$ /sbin/sysctl kernel.userns_restrict
+kernel.userns_restrict = 1
+```
+
+If the value is 1 this will prevent localbind from working. If it does not exist or has the value 0 it is ok. Note that this is the opposite of the previous setting.
+
+To change these settings you have to add a configuration in `/etc/sysctl.d/` that sets it to the desired value at boot. You can use `sysctl -w` to set it as well, but this will be lost after a reboot.
+
+
 ### Configuring your container
 
 You must start your container with the provided seccomp profile (or no seccomp profile at all, but this is not recommended).
