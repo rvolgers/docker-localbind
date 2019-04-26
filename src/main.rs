@@ -3,16 +3,25 @@ extern crate structopt;
 
 use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
-use nix::unistd::{execvp, getuid, getgid};
+use nix::unistd::{getuid, getgid};
+use std::process::Command;
+use std::os::unix::process::CommandExt;
 use std::fs;
 use std::convert::TryFrom;
 use std::path::PathBuf;
-use std::ffi::{OsString, OsStr, CString};
+use std::ffi::{OsString, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use structopt::StructOpt;
 
 /*
 
+Start an interactive dev container by typing ./dev.sh
+
+In the container, try:
+
+cargo run -- -v /:/tmp/testbindmount1 -v /home/user:/tmp/testbindmount1/tmp/testbindmount1
+
+Some more details about the pros / cons of this tool:
 - You can start the container with a non-root initial uid and without CAP_SYS_ADMIN.
 - You need to disable seccomp or use a profile that permits our unshare and mount calls. 
 - Instead of being done container-wide, the mounts are only visible inside processes run
@@ -99,13 +108,9 @@ fn do_mount(VolumeSpec {src, dest}: &VolumeSpec) -> Result<(), String> {
 
 fn execute_main_program(cmd: &Vec<OsString>) -> Result<(), String> {
 
-    let cmd: Vec<_> = cmd.iter().map(|s| CString::new(s.as_bytes()).unwrap()).collect();
+    let e = Command::new(&cmd[0]).args(cmd.iter().skip(1)).exec();
 
-    execvp(&cmd[0], &cmd)
-        .map_err(|e| format!("Executing program {:?} failed: {}", cmd, e))?;
-
-    // We should never get here.
-    unreachable!();
+    Err(format!("Executing program {:?} failed: {}", cmd, e))
 }
 
 #[derive(Debug)]
