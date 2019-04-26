@@ -119,13 +119,16 @@ struct VolumeSpec {
     dest: PathBuf,
 }
 
+// OsStr is a platform-independent abstraction (on Windows it's an UTF-16 string).
+// But on Unix we can use the OsStrExt trait to interoperate with a raw byte string easily.
+fn split_fields(s: &OsStr) -> impl Iterator<Item=&OsStr> {
+    s.as_bytes().split(|b| *b == b':').map(OsStr::from_bytes)
+}
+
 impl TryFrom<&OsStr> for VolumeSpec {
     type Error = String;
     fn try_from(s: &OsStr) -> Result<VolumeSpec, String> {
-        let fields: Vec<_> = s.as_bytes()
-            .split(|b| *b == b':')
-            .map(OsStr::from_bytes)
-            .collect();
+        let fields: Vec<_> = split_fields(s).collect();
         match fields.as_slice() {
             [src, dest] => Ok(VolumeSpec {src: src.into(), dest: dest.into()}),
             _ => Err(format!("Volume specification should contain exactly two fields: {:?}", s))?,
