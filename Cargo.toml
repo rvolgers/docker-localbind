@@ -1,8 +1,12 @@
 [package]
 name = "docker-localbind"
 version = "0.1.0"
-authors = ["user"]
+authors = ["Ronald Volgers"]
 edition = "2018"
+
+[[bin]]
+name = "docker-localbind"
+path = "src/main.rs"
 
 [dependencies]
 nix = "0.13.0"
