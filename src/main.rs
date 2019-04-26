@@ -15,15 +15,22 @@ use structopt::StructOpt;
 
 /*
 
-Start an interactive dev container by typing ./dev.sh
+Start an interactive Docker dev container by typing ./dev.sh
 
-In the container, try:
+In the container, type:
 
+```
 cargo run -- -v /:/tmp/testbindmount1 -v /home/user:/tmp/testbindmount1/tmp/testbindmount1
+```
+
+This spawns a new shell in a new mount (and user-) namespace which has the given bind mounts
+applied.
 
 Some more details about the pros / cons of this tool:
 - You can start the container with a non-root initial uid and without CAP_SYS_ADMIN.
-- You need to disable seccomp or use a profile that permits our unshare and mount calls. 
+- You need to disable seccomp or use a profile that permits our unshare and mount calls.
+  A version of the default Docker seccomp profile with the required two rules added at the
+  top is provided in docker-localbind-seccomp-profile.json.
 - Instead of being done container-wide, the mounts are only visible inside processes run
   with this wrapper tool.
 - Every uid and gid except our own will display as nobody / nogroup from processes run
@@ -144,11 +151,8 @@ fn volume_spec_from_os_string(s: &OsStr) -> Result<VolumeSpec, OsString> {
 #[derive(StructOpt, Debug)]
 #[structopt(name = "localbind")]
 struct Opt {
-    /// Activate debug mode
-    #[structopt(short = "d", long = "debug")]
-    debug: bool,
-
-    /// Specify a bind mount
+    /// Specify a bind mount in the format srcpath:destpath.
+    /// This option can be specified multiple times.
     #[structopt(short = "v", long = "volume", parse(try_from_os_str="volume_spec_from_os_string"), number_of_values=1, value_name="mountspec")]
     mounts: Vec<VolumeSpec>,
 
@@ -170,6 +174,7 @@ fn main() -> Result<(), String> {
     }
 
     if opt.cmd.len() == 0 {
+        // TODO Use the user's default shell instead? Or the value of $SHELL?
         execute_main_program(&vec![OsString::from("/bin/bash")])?;
     } else {
         execute_main_program(&opt.cmd)?;
