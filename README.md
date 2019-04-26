@@ -41,7 +41,7 @@ If the value is 1 this will prevent localbind from working. If it does not exist
 To change these settings you have to add a configuration in `/etc/sysctl.d/` that sets it to the desired value at boot. You can use `sysctl -w` to set it as well, but this will be lost after a reboot.
 
 Whether it is a good idea to change this setting depends a lot on what kind of system it is. For a Docker host or private machine I don't think it matters a lot.
-- This setting does not affect the security of Docker containers running with the default seccomp profile (besides a loss of defense in depth) because the default seccomp profile blocks all syscalls that make use of this feature. (The seccomp profile shipped with localbind only permits the use of user- and mount namespaces, and it restricts the use of the mount syscall to bind mounts only. Notably, it does not allow creating network namespaces or mounting arbitrary filesystems.)
+- This setting does not affect the security of Docker containers running without extra capabilities and with the default seccomp profile (besides a loss of defense in depth) because the default seccomp profile blocks all syscalls that make use of this feature. (The seccomp profile shipped with localbind only permits the use of user- and mount namespaces, and it restricts the use of the mount syscall to bind mounts only. Notably, it does not allow creating network namespaces or mounting arbitrary filesystems.)
 - This setting does not affect the security of privileged Docker containers, because they already have much greater access than changing this setting can provide.
 
 ### Configuring your container
