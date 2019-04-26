@@ -1,11 +1,15 @@
 extern crate nix;
+extern crate structopt;
 
 use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::unistd::{execvp, getuid, getgid};
-use std::{fs, env};
-use std::ffi::{OsString, CString};
+use std::fs;
+use std::convert::TryFrom;
+use std::path::PathBuf;
+use std::ffi::{OsString, OsStr, CString};
 use std::os::unix::ffi::OsStrExt;
+use structopt::StructOpt;
 
 /*
 
@@ -70,10 +74,10 @@ fn is_in_unprivileged_mount_ns() -> Result<bool, String> {
     Ok(total_uid_count <= 1)
 }
 
-fn bind_mount(src: &str, dest: &str) -> Result<(), String> {
+fn do_mount(VolumeSpec {src, dest}: &VolumeSpec) -> Result<(), String> {
 
     fs::create_dir_all(dest)
-        .map_err(|e| format!("Could not create bind mount destination {}: {}", dest, e))?;
+        .map_err(|e| format!("Could not create bind mount destination {:?}: {}", dest, e))?;
 
     /*
     The mount(2) manpage says the following, which means we *must* pass MS_REC and we cannot use
@@ -89,48 +93,13 @@ fn bind_mount(src: &str, dest: &str) -> Result<(), String> {
     assert_eq!(flags.bits(), 20480,
         "Value of {:?} does not match whitelisted value in seccomp profile", flags);
 
-    mount::<str, str, str, str>(Some(src), dest, None, flags, None)
-        .map_err(|e| format!("Could not bind-mount {} over {}: {}", src, dest, e))
+    mount::<PathBuf, PathBuf, str, str>(Some(src), dest, None, flags, None)
+        .map_err(|e| format!("Could not bind-mount {:?} over {:?}: {}", src, dest, e))
 }
 
-fn apply_bind_mounts_from_bindfstab(fname: &str) -> Result<(), String> {
+fn execute_main_program(cmd: &Vec<OsString>) -> Result<(), String> {
 
-    let bindfstab = fs::read_to_string(fname)
-        .map_err(|e| format!("Read {} failed: {}", fname, e))?;
-
-    // Number lines and then filter out ones starting with '#' or containing only whitespace
-    let bindfs_lines_iter = bindfstab.lines().enumerate()
-        .filter(|(_i, l)| !l.starts_with('#') && l.trim().len() > 0);
-
-    // Parse the lines into src:dest tuples and perform the bind mount.
-    // Give an error if there are not exactly two fields.
-    for (i, l) in bindfs_lines_iter {
-        let fields : Vec<_> = l.trim().split(":").collect();
-        match fields.as_slice() {
-            [src, dest] => bind_mount(src, dest)?,
-            _ => Err(format!("Invalid syntax on {} line {}: {:?}", fname, i + 1, l))?,
-        }
-    }
-
-    Ok(())
-}
-
-fn execute_main_program() -> Result<(), String> {
-
-    let cmd : Vec<_> = if env::args_os().count() > 1 {
-
-        // We get args in the OS-abstracted OsString type, but execvp takes them in the
-        // C ABI CString type. Use the as_bytes method from the platform-specific OsStringExt
-        // extension trait to bridge the gap.
-        fn osstring_to_cstring(s : OsString) -> CString {
-            CString::new(s.as_bytes()).unwrap()
-        }
-
-        env::args_os().skip(1).map(osstring_to_cstring).collect()
-    } else {
-        // TODO: Get the user's default shell from fstab.
-        vec![CString::new("/bin/bash").unwrap()]
-    };
+    let cmd: Vec<_> = cmd.iter().map(|s| CString::new(s.as_bytes()).unwrap()).collect();
 
     execvp(&cmd[0], &cmd)
         .map_err(|e| format!("Executing program {:?} failed: {}", cmd, e))?;
@@ -139,14 +108,64 @@ fn execute_main_program() -> Result<(), String> {
     unreachable!();
 }
 
+#[derive(Debug)]
+struct VolumeSpec {
+    src: PathBuf,
+    dest: PathBuf,
+}
+
+impl TryFrom<&OsStr> for VolumeSpec {
+    type Error = String;
+    fn try_from(s: &OsStr) -> Result<VolumeSpec, String> {
+        let fields: Vec<_> = s.as_bytes()
+            .split(|b| *b == b':')
+            .map(OsStr::from_bytes)
+            .collect();
+        match fields.as_slice() {
+            [src, dest] => Ok(VolumeSpec {src: src.into(), dest: dest.into()}),
+            _ => Err(format!("Volume specification should contain exactly two fields: {:?}", s))?,
+        }
+    }
+}
+
+fn volume_spec_from_os_string(s: &OsStr) -> Result<VolumeSpec, OsString> {
+    Ok(VolumeSpec::try_from(s)?)
+}
+
+/// Run programs inside an environment with various local bind mounts configured.
+#[derive(StructOpt, Debug)]
+#[structopt(name = "localbind")]
+struct Opt {
+    /// Activate debug mode
+    #[structopt(short = "d", long = "debug")]
+    debug: bool,
+
+    /// Specify a bind mount
+    #[structopt(short = "v", long = "volume", parse(try_from_os_str="volume_spec_from_os_string"), number_of_values=1, value_name="mountspec")]
+    mounts: Vec<VolumeSpec>,
+
+    #[structopt(parse(from_os_str))]
+    cmd: Vec<OsString>,
+}
+
 fn main() -> Result<(), String> {
+    let opt = Opt::from_args();
+    
     // This assumes that if we're already in an unprivileged mount namespace, it was
     // set up by this program so there is no work to do.
     if !is_in_unprivileged_mount_ns()? {
         new_mount_ns()?;
 
-        apply_bind_mounts_from_bindfstab("/etc/bindfstab")?;
+        for spec in opt.mounts {
+            do_mount(&spec)?;
+        }
     }
 
-    execute_main_program()
+    if opt.cmd.len() == 0 {
+        execute_main_program(&vec![OsString::from("/bin/bash")])?;
+    } else {
+        execute_main_program(&opt.cmd)?;
+    }
+
+    Ok(())
 }
