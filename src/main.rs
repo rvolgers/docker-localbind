@@ -47,6 +47,11 @@ fn new_mount_ns() -> Result<(), String> {
     fs::write("/proc/self/gid_map", format!("{} {} 1", gid, gid))
         .map_err(|e| format!("Write /pro/self/cgid_map failed: {}", e))?;
 
+    // At this point we are a "normal" user but we still have a full set of capabilities in the
+    // the new user namespace, which allows us to perform mount operations.
+    // The capabilities should be automatically dropped as soon as we exec a new executable.
+    // TODO: Test that the capabilities really are dropped.
+
     Ok(())
 }
 
@@ -71,8 +76,8 @@ fn bind_mount(src: &str, dest: &str) -> Result<(), String> {
         .map_err(|e| format!("Could not create bind mount destination {}: {}", dest, e))?;
 
     /*
-    The mount(2) manpage says the following, which implies we can't use unprivileged user
-    namespaces to reveal the original node_modules directories:
+    The mount(2) manpage says the following, which means we *must* pass MS_REC and we cannot use
+    bind mounts to reach directories that have already been obscured by volumes or bind mounts.
 
     EINVAL
     In an unprivileged mount namespace (i.e., a mount namespace owned by a user namespace that
@@ -123,13 +128,15 @@ fn execute_main_program() -> Result<(), String> {
 
         env::args_os().skip(1).map(osstring_to_cstring).collect()
     } else {
+        // TODO: Get the user's default shell from fstab.
         vec![CString::new("/bin/bash").unwrap()]
     };
 
     execvp(&cmd[0], &cmd)
         .map_err(|e| format!("Executing program {:?} failed: {}", cmd, e))?;
 
-    Ok(())
+    // We should never get here.
+    unreachable!();
 }
 
 fn main() -> Result<(), String> {
