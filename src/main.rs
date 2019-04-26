@@ -69,8 +69,13 @@ fn new_mount_ns() -> Result<(), String> {
 
     // At this point we are a "normal" user but we still have a full set of capabilities in the
     // the new user namespace, which allows us to perform mount operations.
-    // The capabilities should be automatically dropped as soon as we exec a new executable.
-    // TODO: Test that the capabilities really are dropped.
+    // The capabilities will be automatically dropped as soon as we exec a new executable.
+
+    // This println shows we have full capabilities but the inheritable capability set is empty.
+    // If we do 'cat /proc/self/status' in the spawned shell the permitted and effective sets
+    // will also be empty.
+    // See also: https://www.kernel.org/doc/html/latest/security/credentials.html
+    //println!("{}", fs::read_to_string("/proc/self/status").unwrap());
 
     Ok(())
 }
