@@ -26,6 +26,8 @@ fn new_mount_ns() -> Result<(), String> {
     // A new user namespace is needed because otherwise we do not have permission to create
     // a mount namespace (assuming we are running as an unprivileged user).
     let flags = CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS;
+    assert_eq!(flags.bits(), 268566528,
+        "Value of {:?} does not match whitelisted value in seccomp profile", flags);
 
     // Perform the namespace creation and switch
     unshare(flags)
@@ -79,6 +81,8 @@ fn bind_mount(src: &str, dest: &str) -> Result<(), String> {
     submounts of the directory being bound.
     */
     let flags = MsFlags::MS_BIND | MsFlags::MS_REC;
+    assert_eq!(flags.bits(), 20480,
+        "Value of {:?} does not match whitelisted value in seccomp profile", flags);
 
     mount::<str, str, str, str>(Some(src), dest, None, flags, None)
         .map_err(|e| format!("Could not bind-mount {} over {}: {}", src, dest, e))

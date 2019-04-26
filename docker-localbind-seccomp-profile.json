@@ -55,8 +55,15 @@
 				"unshare"
 			],
 			"action": "SCMP_ACT_ALLOW",
-			"args": [],
-			"comment": "",
+			"args": [
+				{
+					"index": 0,
+					"value": 268566528,
+					"valueTwo": 268566528,
+					"op": "SCMP_CMP_EQ"
+				}
+			],
+			"comment": "unshare(CLONE_NEWNS | CLONE_NEWUSER)",
 			"includes": {},
 			"excludes": {}
 		},
@@ -65,8 +72,15 @@
 				"mount"
 			],
 			"action": "SCMP_ACT_ALLOW",
-			"args": [],
-			"comment": "",
+			"args": [
+				{
+					"index": 3,
+					"value": 20480,
+					"valueTwo": 20480,
+					"op": "SCMP_CMP_EQ"
+				}
+			],
+			"comment": "mount(_, _, _, MS_BIND | MS_REC)",
 			"includes": {},
 			"excludes": {}
 		},
