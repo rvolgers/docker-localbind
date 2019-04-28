@@ -1,6 +1,7 @@
 extern crate nix;
 extern crate structopt;
 
+use std::io;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::unistd::{getuid, getgid};
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::ffi::{OsString, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use structopt::StructOpt;
+use std::io::ErrorKind::{NotFound, InvalidInput, PermissionDenied};
 
 /*
 
@@ -51,7 +53,7 @@ fn new_mount_ns() -> Result<(), String> {
 
     // Perform the namespace creation and switch
     unshare(flags)
-        .map_err(|e| format!("Unshare failed: {}", e))?;
+        .map_err(|e| format!("Unshare failed (try running 'localbind -t' to diagnose): {}", e))?;
 
     // According to a comment in the unshare.c source code, newer kernels require locking down
     // setgroups before permitting setting of the uid/gid maps.
@@ -65,7 +67,7 @@ fn new_mount_ns() -> Result<(), String> {
         .map_err(|e| format!("Write /proc/self/uid_map failed: {}", e))?;
 
     fs::write("/proc/self/gid_map", format!("{} {} 1", gid, gid))
-        .map_err(|e| format!("Write /pro/self/cgid_map failed: {}", e))?;
+        .map_err(|e| format!("Write /pro/self/gid_map failed: {}", e))?;
 
     // At this point we are a "normal" user but we still have a full set of capabilities in the
     // the new user namespace, which allows us to perform mount operations.
@@ -78,6 +80,75 @@ fn new_mount_ns() -> Result<(), String> {
     //println!("{}", fs::read_to_string("/proc/self/status").unwrap());
 
     Ok(())
+}
+
+fn test_config() {
+
+    println!("Checking kernel.unprivileged_userns_clone sysctl:\n{}\n", 
+        match fs::read_to_string("/proc/sys/kernel/unprivileged_userns_clone") {
+            Ok(ref s) if s == "1\n" => format!("Ok (value is '1')"),
+            Ok(ref s) => format!("Problem! (value is '{}', localbind requires '1')", s.trim()),
+            Err(ref e) if e.kind() == NotFound => format!("Ok (setting appears to be absent)"),
+            Err(ref e) => format!("Unknown (error: {})", e),
+        });
+
+    println!("Checking kernel.userns_restrict sysctl:\n{}\n",
+        match fs::read_to_string("/proc/sys/kernel/userns_restrict") {
+            Ok(ref s) if s == "0\n" => format!("Ok (value is '0')"),
+            Ok(ref s) => format!("Problem! (value is '{}', localbind requires '0')", s.trim()),
+            Err(ref e) if e.kind() == NotFound => format!("Ok (setting appears to be absent)"),
+            Err(ref e) => format!("Unknown (error: {})", e),
+        });
+
+    // TODO could add check that dir /sys/kernel/security/apparmor exists
+    println!("Checking apparmor profile:\n{}\n",
+        match fs::read_to_string("/proc/self/attr/current") {
+            Ok(ref s) if s == "unconfined\n" =>
+                format!("Ok (unconfined, please consider using localbind's provided profile)"),
+            Ok(ref s) if s.contains("localbind") =>
+                format!("Ok ('{}' contains 'localbind', so assuming it's localbind's provided profile)", s.trim()),
+            Ok(ref s) if s.contains("docker-default") =>
+                format!("Problem! ('{}' sounds like it might be docker's default profile, which won't work. try localbind's provided profile.)", s.trim()),
+            Ok(ref s) =>
+                format!("Unknown (unrecognized profile name '{}', is apparmor in use or is this some other security module like selinux?)", s.trim()),
+            Err(ref e) if e.kind() == NotFound =>
+                format!("Probably ok (apparmor not detected)"),
+            Err(ref e) =>
+                format!("Unknown (error: {})", e),
+        });
+
+    fn nix_error_to_io_error(e: nix::Error) -> io::Error {
+        match e {
+            nix::Error::Sys(errno) => io::Error::from(errno),
+            _ => io::Error::new(io::ErrorKind::Other, e),
+        }
+    }
+
+    // We're depending on the kernel checking this flag before checking permissions.
+    // Hence, if we get EPERM it's probably due to seccomp filtering.
+    let bad_flags = MsFlags::MS_NOUSER;
+    let bad_flags_mount_err = mount::<str, str, str, str>(None, "/", None, bad_flags, None)
+        .map_err(nix_error_to_io_error)
+        .expect_err("intentionally invalid mount succeeded");
+
+    // We're depending on the kernel checking the existence of this path before checking permissions.
+    // Hence, if we get EPERM it's probably due to seccomp filtering.
+    let flags = MsFlags::MS_BIND | MsFlags::MS_REC;
+    let bad_path = "/this_is_a_path_that_definitely_doesn't_exist_1c7c166191362314f6e5a06a0c07603c";
+    let bad_path_mount_err = mount::<str, str, str, str>(Some(bad_path), bad_path, None, flags, None)
+        .map_err(nix_error_to_io_error)
+        .expect_err("intentionally invalid mount succeeded");
+
+    println!("Checking seccomp profile:\n{}\n", match (bad_flags_mount_err.kind(), bad_path_mount_err.kind()) {
+        (PermissionDenied, PermissionDenied) =>
+            format!("Problem? (default seccomp profile might be in use, which won't work. try localbind's provided profile.)"),
+        (PermissionDenied, NotFound) =>
+            format!("Ok (localbind's provided seccomp profile appears to be in use)"),
+        (InvalidInput, NotFound) =>
+            format!("Ok (possibly unconfined, please consider using localbind's provided profile)"),
+        (ref a, ref b) =>
+            format!("Unknown (unexpected error codes ({:?} / {:?}). please use localbind's provided profile for best results.)", a, b),
+    });
 }
 
 // Checks whether we are *probably* in an unprivileged mount namespace.
@@ -115,7 +186,7 @@ fn do_mount(VolumeSpec {src, dest}: &VolumeSpec) -> Result<(), String> {
         "Value of {:?} does not match whitelisted value in seccomp profile", flags);
 
     mount::<PathBuf, PathBuf, str, str>(Some(src), dest, None, flags, None)
-        .map_err(|e| format!("Could not bind-mount {:?} over {:?}: {}", src, dest, e))
+        .map_err(|e| format!("Could not bind-mount {:?} over {:?}: {}. If this was a permission error, try running 'localbind -t' to diagnose.", src, dest, e))
 }
 
 fn execute_main_program(cmd: &Vec<OsString>) -> Result<(), String> {
@@ -163,11 +234,19 @@ struct Opt {
 
     #[structopt(parse(from_os_str))]
     cmd: Vec<OsString>,
+
+    #[structopt(short = "t", long = "test-config")]
+    test_config: bool,
 }
 
 fn main() -> Result<(), String> {
     let opt = Opt::from_args();
-    
+
+    if opt.test_config {
+        test_config();
+        return Ok(());
+    }
+
     // This assumes that if we're already in an unprivileged mount namespace, it was
     // set up by this program so there is no work to do.
     if !is_in_unprivileged_mount_ns()? {
