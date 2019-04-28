@@ -21,7 +21,7 @@ At some point I would like to make a Docker image available that only contains t
 In the ideal case you won't have to change anything on your Docker host. However, there are some things that can prevent `localbind` from working. If you run `localbind -t` inside a container it will tell you what's wrong.
 
 - If Docker uses AppArmor on your system, you will have to install the provided `./profiles/docker-localbind-apparmor-profile` to `/etc/apparmor.d` (or you can load it temporarily using `sudo apparmor_parser -r -W ./profiles/docker-localbind-apparmor-profile`).
-- If unprivileged user namespaces are blocked by a sysctl setting on your system, you will have to install *one* of the two provided `profiles/00docker-localbind-*.conf` files to `/etc/sysctl.d`, depending on which of the two settings is used by your system (or you can set it temporarily using `sudo sysctl -w` or by writing the desired value to the file under `/proc/sys/kernel/`).
+- If unprivileged user namespaces are blocked by a sysctl setting on your system, you will have to install *one* of the two provided `profiles/00docker-localbind-*.conf` files to `/etc/sysctl.d`, depending on which of the two settings is used by your system (or you can set it temporarily using `sudo sysctl -w` or by writing the desired value to the file under `/proc/sys/kernel/`). Before you do this, please carefully read the "Security" section below.
 
 ### Configuring your container
 
