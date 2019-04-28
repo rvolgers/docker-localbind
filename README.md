@@ -70,7 +70,7 @@ The seccomp profile is derived from [Docker's default seccomp profile](https://g
 - An `unshare` system call where the flags argument is exactly equal to `CLONE_NEWUSER | CLONE_NEWNS` is permitted. Such a call simultaneously creates a new user namespace and a new mount namespace.
 - A `mount` system call where the flags argument is exactly equal to `MS_BIND | MS_REC` is permitted. Such a call performs a private recursive bind mount operation. "Recursive" means all mounts under the source path will be bind-mounted along with the source path. "Private" means future mounts and unmounts in either the source or destination path will not affect the other one.
 
-I believe this preserves nearly all of the protection offered by Docker's default seccomp profile. Notably, it does not expose the ability ot mount arbitrary filesystems or create network namespaces. Still, even just the ability to create a user and mount namespace does present some extra functionality in the Linux kernel, and this functionality could have exploitable bugs.
+I believe this preserves nearly all of the protection offered by Docker's default seccomp profile. Notably, it does not expose the ability to mount arbitrary filesystems or create network namespaces. Still, even just the ability to create a user and mount namespace does present some extra functionality in the Linux kernel, and this functionality could have exploitable bugs.
 
 ### About the apparmor profile
 
